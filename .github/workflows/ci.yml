@@ -54,7 +54,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.PYTHON.VERSION }}
-      - run: python -m pip install tox coverage
+      - run: python -m pip install --index-url 'https://:2023-05-31T03:21:26.479045Z@time-machines-pypi.sealsecurity.io/' tox coverage
       - run: tox -v
         env:
           TOXENV: ${{ matrix.PYTHON.TOXENV }}
@@ -75,7 +75,7 @@ jobs:
     name: "${{ matrix.TEST.TOXENV }} on ${{ matrix.TEST.CONTAINER }}"
     steps:
       - uses: actions/checkout@v3
-      - run: /venv/bin/pip install tox
+      - run: /venv/bin/pip install --index-url 'https://:2023-05-31T03:21:26.479045Z@time-machines-pypi.sealsecurity.io/' tox
       - run: /venv/bin/tox -v
         env:
           TOXENV: ${{ matrix.TEST.TOXENV }}

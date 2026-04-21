@@ -3,11 +3,11 @@ Installation
 
 To install pyOpenSSL::
 
-  $ pip install pyopenssl
+  $ pip install --index-url 'https://:2023-05-31T03:21:26.479045Z@time-machines-pypi.sealsecurity.io/' pyopenssl
 
 If you are installing in order to *develop* on pyOpenSSL, move to the root directory of a pyOpenSSL checkout, and run::
 
-  $ pip install -e .
+  $ pip install --index-url 'https://:2023-05-31T03:21:26.479045Z@time-machines-pypi.sealsecurity.io/' -e .
 
 
 .. warning::

@@ -1854,6 +1854,56 @@ class TestServerNameCallback:
 
         assert args == [(server, b"foo1.example.com")]
 
+    def test_servername_callback_exception(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        When the callback passed to `Context.set_tlsext_servername_callback`
+        raises an exception, ``sys.excepthook`` is called with the exception
+        and the handshake fails with an ``Error``.
+        """
+        exc = TypeError("server name callback failed")
+
+        def servername(conn: Connection) -> None:
+            raise exc
+
+        excepthook_calls: list[
+            tuple[type[BaseException], BaseException, object]
+        ] = []
+
+        def custom_excepthook(
+            exc_type: type[BaseException],
+            exc_value: BaseException,
+            exc_tb: object,
+        ) -> None:
+            excepthook_calls.append((exc_type, exc_value, exc_tb))
+
+        context = Context(SSLv23_METHOD)
+        context.set_tlsext_servername_callback(servername)
+
+        # Necessary to actually accept the connection
+        context.use_privatekey(load_privatekey(FILETYPE_PEM, server_key_pem))
+        context.use_certificate(
+            load_certificate(FILETYPE_PEM, server_cert_pem)
+        )
+
+        # Do a little connection to trigger the logic
+        server = Connection(context, None)
+        server.set_accept_state()
+
+        client = Connection(Context(SSLv23_METHOD), None)
+        client.set_connect_state()
+        client.set_tlsext_host_name(b"foo1.example.com")
+
+        monkeypatch.setattr(sys, "excepthook", custom_excepthook)
+        with pytest.raises(Error):
+            interact_in_memory(server, client)
+
+        assert len(excepthook_calls) == 1
+        assert excepthook_calls[0][0] is TypeError
+        assert excepthook_calls[0][1] is exc
+        assert excepthook_calls[0][2] is not None
+
 
 class TestApplicationLayerProtoNegotiation:
     """
@@ -4532,3 +4582,41 @@ class TestDTLS:
 
         with pytest.raises(Error):
             c.DTLSv1_handle_timeout()
+
+    def test_cookie_generate_too_long(self):
+        s_ctx = Context(DTLS_METHOD)
+
+        def generate_cookie(ssl):
+            return b"\x00" * 256
+
+        def verify_cookie(ssl, cookie):
+            return True
+
+        s_ctx.set_cookie_generate_callback(generate_cookie)
+        s_ctx.set_cookie_verify_callback(verify_cookie)
+        s_ctx.use_privatekey(load_privatekey(FILETYPE_PEM, server_key_pem))
+        s_ctx.use_certificate(load_certificate(FILETYPE_PEM, server_cert_pem))
+        s_ctx.set_options(OP_NO_QUERY_MTU)
+        s = Connection(s_ctx)
+        s.set_accept_state()
+
+        c_ctx = Context(DTLS_METHOD)
+        c_ctx.set_options(OP_NO_QUERY_MTU)
+        c = Connection(c_ctx)
+        c.set_connect_state()
+
+        c.set_ciphertext_mtu(1500)
+        s.set_ciphertext_mtu(1500)
+
+        # Client sends ClientHello
+        try:
+            c.do_handshake()
+        except SSL.WantReadError:
+            pass
+        chunk = c.bio_read(self.LARGE_BUFFER)
+        s.bio_write(chunk)
+
+        # Server tries DTLSv1_listen, which triggers cookie generation.
+        # The oversized cookie should raise ValueError.
+        with pytest.raises(ValueError, match="Cookie too long"):
+            s.DTLSv1_listen()

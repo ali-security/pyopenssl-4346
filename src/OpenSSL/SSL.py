@@ -1,5 +1,6 @@
 import os
 import socket
+import sys
 from errno import errorcode
 from functools import partial, wraps
 from itertools import chain, count
@@ -669,11 +670,18 @@ class _CookieGenerateCallbackHelper(_CallbackExceptionHelper):
     def __init__(self, callback):
         _CallbackExceptionHelper.__init__(self)
 
+        max_cookie_len = getattr(_lib, "DTLS1_COOKIE_LENGTH", 255)
+
         @wraps(callback)
         def wrapper(ssl, out, outlen):
             try:
                 conn = Connection._reverse_mapping[ssl]
                 cookie = callback(conn)
+                if len(cookie) > max_cookie_len:
+                    raise ValueError(
+                        f"Cookie too long (got {len(cookie)} bytes, "
+                        f"max {max_cookie_len})"
+                    )
                 out[0 : len(cookie)] = cookie
                 outlen[0] = len(cookie)
                 return 1
@@ -1546,7 +1554,11 @@ class Context:
 
         @wraps(callback)
         def wrapper(ssl, alert, arg):
-            callback(Connection._reverse_mapping[ssl])
+            try:
+                callback(Connection._reverse_mapping[ssl])
+            except Exception:
+                sys.excepthook(*sys.exc_info())
+                return _lib.SSL_TLSEXT_ERR_ALERT_FATAL
             return 0
 
         self._tlsext_servername_callback = _ffi.callback(
